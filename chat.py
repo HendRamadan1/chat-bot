@@ -7,8 +7,6 @@ Original file is located at
     https://colab.research.google.com/drive/1TMF1NtN9RpQP-Jc0X46DSX02MTCNl5Uq
 """
 
-pip install streamlit
-
 import streamlit as st
 import pandas as pd
 from sentence_transformers import SentenceTransformer, util
