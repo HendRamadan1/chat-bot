@@ -1,3 +1,5 @@
+# --- 1. Database Fix (Must be at the very top) ---
+# Required for running Chroma DB on some environments (like Streamlit Cloud)
 try:
     __import__('pysqlite3')
     import sys
@@ -12,6 +14,7 @@ from streamlit_chat import message
 # FIXED: Use standard LangChain imports
 from langchain_classic.chains import ConversationalRetrievalChain
 from langchain_classic.memory import ConversationBufferMemory
+# Imports for RAG and LLM setup
 from langchain_huggingface import HuggingFaceEndpoint, HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
@@ -56,16 +59,6 @@ PROMPT = PromptTemplate(
 # --- 4. Setup & Configuration ---
 st.set_page_config(page_title="Banque Masr AI Assistant", page_icon="🏦", layout="centered")
 st.title("🏦 Banque Masr Conversational Assistant :books:")
-
-# Secrets Handling
-if "HUGGINGFACEHUB_API_TOKEN" not in os.environ:
-    # FIXED: Use st.sidebar for text input
-    api_key = st.sidebar.text_input("Enter Hugging Face API Token", type="password") 
-    if api_key:
-        os.environ["HUGGINGFACEHUB_API_TOKEN"] = api_key
-    else:
-        st.warning("Please enter your Hugging Face API Token in the sidebar.")
-        st.stop()
 
 
 # --- 5. Cached Resource Loading ---
@@ -176,6 +169,15 @@ def main():
 
     st.sidebar.subheader("RAG Model Status")
     
+    # 4. Secrets Handling (Moved from Section 4 to Main execution for sequential logic)
+    if "HUGGINGFACEHUB_API_TOKEN" not in os.environ:
+        api_key = st.sidebar.text_input("Enter Hugging Face API Token", type="password") 
+        if api_key:
+            os.environ["HUGGINGFACEHUB_API_TOKEN"] = api_key
+        else:
+            st.warning("Please enter your Hugging Face API Token in the sidebar.")
+            st.stop()
+
     # Load resources
     try:
         # CORRECTED: Uses st.spinner globally and st.sidebar.info for status updates
@@ -195,7 +197,7 @@ def main():
         st.warning(
             "The error is likely caused by an issue connecting to the Hugging Face Inference API. "
             "Please ensure that your `HUGGINGFACEHUB_API_TOKEN` is valid and has sufficient permissions "
-            f"to access the model: `{REPO_ID}`."
+            f"to access the model: `{REPO_ID}`. You may need to accept the model's terms on Hugging Face Hub."
         )
         st.stop()
     
