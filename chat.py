@@ -60,15 +60,15 @@ def load_data_and_vectordb():
 
 @st.cache_resource
 def load_llm():
-    # CHANGED: Removed 'task="text-generation"' to allow auto-configuration
-    # This prevents the "provider featherless-ai" error
+    # ...
+    # 🔑 FIX: Change task to 'text-generation'
     llm = HuggingFaceEndpoint(
         repo_id=REPO_ID,
         max_new_tokens=512,
         do_sample=True,
         temperature=0.7,
         repetition_penalty=1.1,
-    
+        task="text-generation" 
     )
     return llm
 
