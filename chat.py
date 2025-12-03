@@ -1,209 +1,110 @@
-# --- 1. Database Fix (Must be at the very top) ---
-# Required for running Chroma DB on some environments (like Streamlit Cloud)
-try:
-    __import__('pysqlite3')
-    import sys
-    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
-except ImportError:
-    pass 
-
-# --- 2. Imports ---
 import streamlit as st
-# Imports for conversational components and UI
 from streamlit_chat import message
-# FIXED: Use standard LangChain imports
+
+from langchain.embeddings import HuggingFaceEmbeddings
+from langchain_community.llms import LlamaCpp
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.vectorstores import FAISS
 from langchain_classic.chains import ConversationalRetrievalChain
 from langchain_classic.memory import ConversationBufferMemory
-# Imports for RAG and LLM setup
-from langchain_huggingface import HuggingFaceEndpoint, HuggingFaceEmbeddings
-from langchain_community.vectorstores import Chroma
-from langchain_core.documents import Document
-from langchain_core.prompts import PromptTemplate # Added for custom RAG prompting
+# CHANGED: Import CSVLoader instead of PyPDFLoader
+from langchain.document_loaders.csv_loader import CSVLoader
 import os
-import pandas as pd 
+# REMOVED: Removed the need for tempfile
+# import tempfile
 
-# --- 3. Banque Masr Static Data (Replacing BankFAQs.csv) ---
-BANK_FAQS = [
-    {"question": "What are the requirements for opening a new savings account?", "answer": "You need a valid national ID, a recent utility bill, and an initial deposit of 1000 EGP.", "class": "Accounts"},
-    {"question": "What is the maximum duration for a personal loan?", "answer": "The maximum duration is 7 years, or 84 months, subject to credit score approval.", "class": "Loans"},
-    {"question": "How do I report a lost or stolen credit card?", "answer": "Immediately call our 24/7 hotline at 19666. Your card will be instantly blocked. This is a critical security measure.", "class": "Cards"},
-    {"question": "Can I apply for a mortgage if I am self-employed?", "answer": "Yes, provided you can show consistent income statements for the past two years and provide business registration documents.", "class": "Loans"},
-    {"question": "What are the monthly maintenance fees for the Platinum account?", "answer": "The monthly maintenance fee is 50 EGP, which is waived if the minimum balance of 20,000 EGP is maintained for the entire month.", "class": "Accounts"},
-    {"question": "Do you offer car loans?", "answer": "Yes, car loans are available for both new and used vehicles, with repayment terms up to 5 years.", "class": "Loans"},
-]
-# Constants
-# CHANGED MODEL: Switching to a public, non-gated model (Gemma) to bypass permission/token errors
-REPO_ID = "google/gemma-2b-it"
-
-
-# Prompt Template for Conversational Chain (using a general instruction format)
-CUSTOM_TEMPLATE = """
-You are a helpful and intelligent Finance QNA Expert for Banque Masr. 
-Use the following context to answer the user's question accurately. 
-If the answer is not in the context, say "Sorry, I don't know that information." and do not make up facts.
-
-Chat History:
-{chat_history}
-
-Context: {context}
-
-Question: {question}
-
-Answer:
-"""
-PROMPT = PromptTemplate(
-    input_variables=["context", "question", "chat_history"], 
-    template=CUSTOM_TEMPLATE
-)
-
-
-# --- 4. Setup & Configuration ---
-st.set_page_config(page_title="Banque Masr AI Assistant", page_icon="🏦", layout="centered")
-st.title("🏦 Banque Masr Conversational Assistant :books:")
-
-
-# --- 5. Cached Resource Loading ---
-
-@st.cache_resource
-def load_data_and_vectordb():
-    # Process embedded data into LangChain Documents
-    documents = []
-    for faq in BANK_FAQS:
-        content = f"Question: {faq['question']}\nAnswer: {faq['answer']}"
-        documents.append(Document(page_content=content, metadata={"class": faq["class"]}))
-
-    # Create embeddings
-    hg_embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-    
-    # Create vector store (Chroma)
-    vector_db = Chroma.from_documents(
-        documents=documents,
-        embedding=hg_embeddings,
-        collection_name="chatbot_BankMasr"
-    )
-    return vector_db
-
-@st.cache_resource
-def load_llm():
-    # Initialize HuggingFace Endpoint LLM (using the new Gemma model)
-    llm = HuggingFaceEndpoint(
-        repo_id=REPO_ID,
-        max_new_tokens=512,
-        do_sample=True,
-        temperature=0.7,
-        repetition_penalty=1.1,
-        task="conversational" 
-    )
-    return llm
-
-
-# --- 6. Conversational Chain Functions ---
-
+# Initialisation functions (unchanged, but updated messages)
 def initialize_session_state():
-    # Initializes the state variables needed by streamlit_chat and the chain
     if 'history' not in st.session_state:
-        st.session_state['history'] = [] 
+        st.session_state['history'] = []
+
     if 'generated' not in st.session_state:
-        st.session_state['generated'] = ["Welcome to Banque Masr! How can I help you today?"]
+        # UPDATED: Initial message for bank context
+        st.session_state['generated'] = ["Hello! Ask me anything about the Bank's FAQs."]
+
     if 'past' not in st.session_state:
         st.session_state['past'] = ["Hey! 👋"]
 
-def create_conversational_chain(vector_store, llm):
-    # Setup conversation memory
-    memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-
-    # Create the ConversationalRetrievalChain (replaces RetrievalQA)
-    chain = ConversationalRetrievalChain.from_llm(
-        llm=llm, 
-        chain_type='stuff',
-        retriever=vector_store.as_retriever(search_kwargs={"k": 3}),
-        memory=memory,
-        # Pass the custom prompt to ensure persona and history are used
-        combine_docs_chain_kwargs={"prompt": PROMPT} 
-    )
-    return chain
-
-def conversation_chat(query, chain):
-    # This function invokes the chain, which manages history internally
-    result = chain({"question": query}) 
-    answer = result["answer"]
-
-    # Removed Mistral-specific cleanup, as the new prompt format is standard
-    return answer
+def conversation_chat(query, chain, history):
+    result = chain({"question": query, "chat_history": history})
+    history.append((query, result["answer"]))
+    return result["answer"]
 
 def display_chat_history(chain):
-    # Containers to manage layout
     reply_container = st.container()
     container = st.container()
 
     with container:
-        # Use a standard chat input instead of st.form for cleaner UX
-        user_input = st.chat_input("Ask about loans, cards, or accounts...")
+        with st.form(key='my_form', clear_on_submit=True):
+            # UPDATED: Placeholder for bank context
+            user_input = st.text_input("Question:", placeholder="Ask about bank FAQs (e.g., 'What should I do if my card is lost?'), key='input')
+            submit_button = st.form_submit_button(label='Send')
 
-        if user_input:
-            with st.spinner('Searching FAQs...'):
-                output = conversation_chat(user_input, chain)
+        if submit_button and user_input:
+            with st.spinner('Generating response...'):
+                output = conversation_chat(user_input, chain, st.session_state['history'])
 
-            # Update session state for the UI
             st.session_state['past'].append(user_input)
             st.session_state['generated'].append(output)
 
-    # Display chat history using streamlit_chat.message
     if st.session_state['generated']:
         with reply_container:
             for i in range(len(st.session_state['generated'])):
-                # Skip the initial user greeting that doesn't correspond to an input
-                if i < len(st.session_state["past"]):
-                    message(st.session_state["past"][i], is_user=True, key=str(i) + '_user', avatar_style="thumbs")
-                
+                message(st.session_state["past"][i], is_user=True, key=str(i) + '_user', avatar_style="thumbs")
                 message(st.session_state["generated"][i], key=str(i), avatar_style="fun-emoji")
 
+def create_conversational_chain(vector_store):
+    # Create llm
+    # NOTE: Ensure the mistral-7b-instruct-v0.1.Q4_K_M.gguf file is in the same directory
+    # or accessible via the model_path.
+    llm = LlamaCpp(
+        streaming = True,
+        model_path="mistral-7b-instruct-v0.1.Q4_K_M.gguf",
+        temperature=0.75,
+        top_p=1,
+        verbose=True,
+        n_ctx=4096
+    )
 
-# --- 7. Main Execution ---
+    memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+
+    chain = ConversationalRetrievalChain.from_llm(llm=llm, chain_type='stuff',
+                                                  retriever=vector_store.as_retriever(search_kwargs={"k": 2}),
+                                                  memory=memory)
+    return chain
 
 def main():
-    # Initialize session state (past, generated, history)
+    # Initialize session state
     initialize_session_state()
+    # UPDATED: Title to reflect the bank context
+    st.title("Bank FAQs ChatBot using Mistral-7B-Instruct :bank:")
 
-    st.sidebar.subheader("RAG Model Status")
-    
-    # 4. Secrets Handling (Moved from Section 4 to Main execution for sequential logic)
-    if "HUGGINGFACEHUB_API_TOKEN" not in os.environ:
-        api_key = st.sidebar.text_input("Enter Hugging Face API Token", type="password") 
-        if api_key:
-            os.environ["HUGGINGFACEHUB_API_TOKEN"] = api_key
-        else:
-            st.warning("Please enter your Hugging Face API Token in the sidebar.")
-            st.stop()
+    # CHANGED: Removed file uploader and replaced with direct file loading
+    st.sidebar.title("Document Processing")
+    st.sidebar.markdown("Data loaded from **BankFAQs.csv**.") # Information for the user
 
-    # Load resources
-    try:
-        # CORRECTED: Uses st.spinner globally and st.sidebar.info for status updates
-        with st.spinner("Loading RAG resources..."):
-            st.sidebar.info("1. Preparing knowledge base (Chroma DB)...")
-            vector_db = load_data_and_vectordb()
-            st.sidebar.success("1. Knowledge base ready!")
-            
-            st.sidebar.info(f"2. Loading LLM ({REPO_ID})...")
-            llm = load_llm()
-            st.sidebar.success("2. LLM loaded!")
-            
-    except Exception as e:
-        # If an error still occurs, print the full error, and provide specific guidance
-        st.error("Failed to initialize RAG components.")
-        st.error(f"Error details: {e}")
-        st.warning(
-            "The error is almost certainly caused by an issue with the Hugging Face API Token or network access. "
-            f"Please double-check that your `HUGGINGFACEHUB_API_TOKEN` is valid for model access."
-        )
-        st.stop()
-    
-    st.sidebar.success("All systems ready!")
+    # Define the path to your CSV file
+    csv_file_path = "BankFAQs.csv"
 
-    # Create the Conversational Chain object
-    chain = create_conversational_chain(vector_db, llm)
-    
-    # Display the conversational UI
+    # Use LangChain's CSVLoader to load the data
+    # NOTE: The default setting will create document content from the entire row.
+    loader = CSVLoader(file_path=csv_file_path, encoding="utf-8")
+    text = loader.load()
+
+    # Text splitting remains the same
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=10000, chunk_overlap=20)
+    text_chunks = text_splitter.split_documents(text)
+
+    # Create embeddings (remains the same)
+    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2",
+                                       model_kwargs={'device': 'cpu'})
+
+    # Create vector store (remains the same)
+    vector_store = FAISS.from_documents(text_chunks, embedding=embeddings)
+
+    # Create the chain object (remains the same)
+    chain = create_conversational_chain(vector_store)
+
     display_chat_history(chain)
 
 if __name__ == "__main__":
