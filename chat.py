@@ -20,7 +20,7 @@ st.title("🏦 Banque Masr Intelligent Assistant")
 
 # Constants
 # CHANGED: Switched to Mistral v0.3 which is more stable on the free API than Zephyr
-REPO_ID = "HuggingFaceH4/zephyr-7b-alpha"
+REPO_ID = "mistralai/Mistral-7B-Instruct-v0.2"
 DATA_PATH = "data/BankFAQs.csv" 
 
 # Secrets Handling
@@ -68,7 +68,7 @@ def load_llm():
         do_sample=True,
         temperature=0.7,
         repetition_penalty=1.1,
-        task="conversational"
+    
     )
     return llm
 
