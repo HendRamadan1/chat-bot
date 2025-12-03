@@ -1,124 +1,117 @@
-# This is a Streamlit RAG application using ChromaDB for retrieval and 
-# Mistral-7B-Instruct-v0.3 via the HuggingFace Inference API for generation.
-
-# --- 1. Database Fix (Must be at the very top for Streamlit deployment) ---
-# This ensures ChromaDB can use a modern SQLite version.
-__import__('pysqlite3')
-import sys
-sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
-
-# --- 2. Imports ---
 import streamlit as st
 import pandas as pd
+import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline, BitsAndBytesConfig
+from langchain_huggingface import HuggingFacePipeline, HuggingFaceEmbeddings
+from langchain_chroma import Chroma
+from langchain.chains import RetrievalQA
+from langchain.prompts import PromptTemplate
+from langchain_core.documents import Document
 import os
 
-# Standard LangChain packages
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_huggingface import HuggingFaceEndpoint
-from langchain_community.vectorstores import Chroma
-from langchain_classic.chains import RetrievalQA
-from langchain_core.prompts import PromptTemplate
-from langchain_community.llms import HuggingFaceHub
-from langchain_core.documents import Document
-# Removed unnecessary imports:
-# HuggingFacePipeline, HuggingFaceHub, transformers, AutoTokenizer, torch
-
-# --- 3. Setup & Configuration ---
+# --- Page Config ---
 st.set_page_config(page_title="Banque Masr AI Assistant", page_icon="🏦", layout="centered")
 st.title("🏦 Banque Masr Intelligent Assistant")
 
-# Constants
-REPO_ID = "mistralai/Mistral-7B-Instruct-v0.3"
-DATA_PATH = "data/BankFAQs.csv" 
+# --- Constants ---
+MODEL_ID = 'HuggingFaceH4/zephyr-7b-beta'
+DATA_PATH = "data/BankFAQs.csv" # Ensure your CSV is in a 'data' folder
 
-# Secrets Handling
-if "HUGGINGFACEHUB_API_TOKEN" in st.secrets:
-    # Use Streamlit secrets if available
-    os.environ["HUGGINGFACEHUB_API_TOKEN"] = st.secrets["HUGGINGFACEHUB_API_TOKEN"]
-else:
-    # Fallback to user input for the API key
-    api_key = st.sidebar.text_input("Enter Hugging Face Token", type="password")
-    if api_key:
-        os.environ["HUGGINGFACEHUB_API_TOKEN"] = api_key
-    else:
-        st.warning("Please enter your Hugging Face API Token in the sidebar or Streamlit Secrets.")
-        st.stop()
-
-# --- 4. Cached Resource Loading ---
+# --- 1. Load Resources (Cached) ---
 
 @st.cache_resource
 def load_data_and_vectordb():
-    """Loads CSV data, processes it into LangChain Documents, and creates/loads a Chroma vector store."""
+    """Loads CSV, processes it, and sets up ChromaDB."""
     if not os.path.exists(DATA_PATH):
-        st.error(f"File not found: {DATA_PATH}. Please check your GitHub folder structure.")
+        st.error(f"File not found: {DATA_PATH}. Please upload the CSV.")
         return None
 
-    # Load and process the FAQ data
+    # Load Data
     bank = pd.read_csv(DATA_PATH)
     bank["content"] = bank.apply(lambda row: f"Question: {row['Question']}\nAnswer: {row['Answer']}", axis=1)
     
+    # Create Documents
     documents = []
     for _, row in bank.iterrows():
         documents.append(Document(page_content=row["content"], metadata={"class": row["Class"]}))
 
-    # Initialize the embedding model
+    # Embeddings
     hg_embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     
-    # Create the vector store
+    # Vector DB (In-memory for session or persistent)
+    # Using a persistent directory so it doesn't rebuild unnecessarily
     vector_db = Chroma.from_documents(
         documents=documents,
         embedding=hg_embeddings,
-        collection_name="chatbot_BankMasr"
+        collection_name="chatbot_BankMasr",
+        persist_directory="./chroma_db_streamlit"
     )
     return vector_db
 
 @st.cache_resource
 def load_llm():
-    """Initializes the LLM using the HuggingFaceEndpoint wrapper for the Inference API."""
-    # FIX: Using HuggingFaceEndpoint (API call) instead of loading the model locally.
-    # FIX: All generation parameters (max_new_tokens, temperature, etc.) are passed directly
-    # to resolve the Pydantic ValidationError.
+    """Loads the Zephyr LLM with 4-bit Quantization."""
     
-    llm = HuggingFaceEndpoint(
-        repo_id=REPO_ID,
-        max_new_tokens=512,         # Direct Argument
-        do_sample=True,             # Direct Argument
-        temperature=0.7,            # Direct Argument
-        repetition_penalty=1.1,     # Direct Argument
+    # Quantization Config
+    bnb_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type='nf4',
+        bnb_4bit_use_double_quant=True,
+        bnb_4bit_compute_dtype=torch.bfloat16
     )
+
+    # Load Tokenizer
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+
+    # Load Model
+    model = AutoModelForCausalLM.from_pretrained(
+        MODEL_ID,
+        trust_remote_code=True,
+        quantization_config=bnb_config,
+        device_map='auto'
+    )
+
+    # Create Pipeline
+    text_generation_pipeline = pipeline(
+        "text-generation",
+        model=model,
+        tokenizer=tokenizer,
+        model_kwargs={"torch_dtype": torch.float16},
+        max_new_tokens=500,
+        do_sample=True,
+        temperature=0.7,
+        top_k=50,
+        top_p=0.95,
+        return_full_text=False # Important for LangChain
+    )
+
+    llm = HuggingFacePipeline(pipeline=text_generation_pipeline)
     return llm
 
-# --- 5. App Logic ---
+# --- 2. Initialize Application ---
 
-with st.spinner("Initializing AI Brain..."):
+with st.spinner("Initializing AI Brain... (This depends on your GPU)"):
     vector_db = load_data_and_vectordb()
-    # Check if API token is set before attempting to load LLM
-    if "HUGGINGFACEHUB_API_TOKEN" in os.environ and os.environ["HUGGINGFACEHUB_API_TOKEN"]:
-        llm = load_llm()
-    else:
-        st.warning("API Token is not set. Cannot initialize LLM.")
-        llm = None
+    llm = load_llm()
 
 if vector_db is None or llm is None:
     st.stop()
 
-# Prompt Template using Mistral's instruction format
-template = """<|system|>
-You are a helpful and intelligent Finance QNA Expert for Banque Masr. 
-Use the following context to answer the user's question accurately. 
-If the answer is not in the context, say "Sorry, I don't know that information." and do not make up facts.
-</s>
-<|user|>
+# --- 3. Setup QA Chain ---
+
+template = """
+You are a Finance QNA Expert for Banque Masr. Analyze the Query and Respond to the Customer with a suitable and helpful answer based ONLY on the context provided below.
+If you don't know the answer based on the context, just say "Sorry, I don't know." do not make up facts.
+
 Context: {context}
 
 Question: {question}
-</s>
-<|assistant|>
+
+Answer:
 """
 PROMPT = PromptTemplate(input_variables=["context", "question"], template=template)
 
-# Retriever and RAG Chain setup
-retriever = vector_db.as_retriever(search_kwargs={"k": 3})
+retriever = vector_db.as_retriever(search_kwargs={"k": 2})
 
 qa_chain = RetrievalQA.from_chain_type(
     llm=llm,
@@ -127,35 +120,33 @@ qa_chain = RetrievalQA.from_chain_type(
     chain_type_kwargs={"prompt": PROMPT}
 )
 
-# Chat Interface
+# --- 4. Chat Interface ---
+
+# Initialize chat history
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "assistant", "content": "Welcome to Banque Masr! How can I help you today?"}]
 
+# Display chat messages from history on app rerun
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-if prompt := st.chat_input("Ask about loans, cards, or accounts..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
+# React to user input
+if prompt := st.chat_input("Ask about loans, accounts, or cards..."):
+    # Display user message in chat message container
     st.chat_message("user").markdown(prompt)
+    # Add user message to chat history
+    st.session_state.messages.append({"role": "user", "content": prompt})
 
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             try:
-                # Invoke the RAG chain
+                # Run the chain
                 response = qa_chain.invoke(prompt)
                 result = response['result']
-                
-                # Clean up tokens generated by the LLM
-                if "<|assistant|>" in result:
-                    result = result.split("<|assistant|>")[-1].strip()
-                if "<|user|>" in result:
-                    result = result.split("<|user|>")[0].strip()
-
                 st.markdown(result)
+                
+                # Add assistant response to chat history
                 st.session_state.messages.append({"role": "assistant", "content": result})
             except Exception as e:
-                # Added robust error logging and display
-                error_message = f"An error occurred during generation. This may be due to a malformed prompt or API issue: {str(e)}"
-                st.error(error_message)
-                st.session_state.messages.append({"role": "assistant", "content": error_message})
+                st.error(f"An error occurred: {e}")
