@@ -4,24 +4,23 @@ import sys
 sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 
 # --- 2. Imports ---
-# --- 2. Imports ---
 import streamlit as st
 import pandas as pd
-from langchain_huggingface import HuggingFaceEndpoint, HuggingFaceEmbeddings
-# from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_community.vectorstores import Chroma
-from langchain_classic.chains import RetrievalQA
-from langchain_core.prompts import PromptTemplate
-from langchain_core.documents import Document
 import os
+from langchain_huggingface import HuggingFaceEndpoint, HuggingFaceEmbeddings
+from langchain_chroma import Chroma
+from langchain.chains import RetrievalQA
+from langchain.prompts import PromptTemplate
+from langchain_core.documents import Document
 
 # --- 3. Setup & Configuration ---
 st.set_page_config(page_title="Banque Masr AI Assistant", page_icon="🏦", layout="centered")
 st.title("🏦 Banque Masr Intelligent Assistant")
 
 # Constants
-# CHANGED: Switched to Mistral v0.3 which is more stable on the free API than Zephyr
-REPO_ID = "HuggingFaceH4/zephyr-7b-beta"
+# CHANGED: Switched to Flan-T5. This is a text-to-text model that bypasses
+# the "Conversational" task restriction error you were facing.
+REPO_ID = "google/flan-t5-large"
 DATA_PATH = "data/BankFAQs.csv" 
 
 # Secrets Handling
@@ -44,14 +43,17 @@ def load_data_and_vectordb():
         return None
 
     bank = pd.read_csv(DATA_PATH)
+    # Combine question and answer for better context retrieval
     bank["content"] = bank.apply(lambda row: f"Question: {row['Question']}\nAnswer: {row['Answer']}", axis=1)
     
     documents = []
     for _, row in bank.iterrows():
         documents.append(Document(page_content=row["content"], metadata={"class": row["Class"]}))
 
+    # Setup Embeddings
     hg_embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     
+    # Setup Vector DB
     vector_db = Chroma.from_documents(
         documents=documents,
         embedding=hg_embeddings,
@@ -61,14 +63,13 @@ def load_data_and_vectordb():
 
 @st.cache_resource
 def load_llm():
-    # CHANGED: Removed 'task="text-generation"' to allow auto-configuration
-    # This prevents the "provider featherless-ai" error
+    # Flan-T5 works best with these parameters
     llm = HuggingFaceEndpoint(
         repo_id=REPO_ID,
+        task="text2text-generation",
         max_new_tokens=512,
-        do_sample=True,
-        temperature=0.7,
-        repetition_penalty=1.1
+        do_sample=False, # T5 works better with greedy search for QA
+        temperature=0.1
     )
     return llm
 
@@ -82,18 +83,16 @@ if vector_db is None or llm is None:
     st.stop()
 
 # Prompt Template
-template = """<|system|>
-You are a helpful and intelligent Finance QNA Expert for Banque Masr. 
-Use the following context to answer the user's question accurately. 
-If the answer is not in the context, say "Sorry, I don't know that information." and do not make up facts.
-</s>
-<|user|>
+# CHANGED: Standard RAG prompt for T5 (no <|system|> tags needed)
+template = """Use the following pieces of context to answer the question at the end. 
+If the answer is not in the context, just say that you don't know, don't try to make up an answer.
+
 Context: {context}
 
 Question: {question}
-</s>
-<|assistant|>
-"""
+
+Answer:"""
+
 PROMPT = PromptTemplate(input_variables=["context", "question"], template=template)
 
 retriever = vector_db.as_retriever(search_kwargs={"k": 3})
@@ -122,9 +121,6 @@ if prompt := st.chat_input("Ask about loans, cards, or accounts..."):
             try:
                 response = qa_chain.invoke(prompt)
                 result = response['result']
-                # Cleanup tokens if they appear in output
-                if "<|assistant|>" in result:
-                    result = result.split("<|assistant|>")[-1].strip()
                 st.markdown(result)
                 st.session_state.messages.append({"role": "assistant", "content": result})
             except Exception as e:
