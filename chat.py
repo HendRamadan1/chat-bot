@@ -33,7 +33,8 @@ BANK_FAQS = [
 ]
 # Constants
 # CHANGED MODEL: Switching to a public, non-gated model (Gemma) to bypass permission/token errors
-REPO_ID = "mistral-7b-instruct-v0.1.Q4_K_M.gguf"
+REPO_ID = "google/gemma-2b-it"
+
 
 # Prompt Template for Conversational Chain (using a general instruction format)
 CUSTOM_TEMPLATE = """
