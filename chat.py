@@ -11,6 +11,7 @@ except ImportError:
 import streamlit as st
 # Imports for conversational components and UI
 from streamlit_chat import message
+# RESTORED: These should import from the standard 'langchain' package path
 from langchain_classic.chains import ConversationalRetrievalChain
 from langchain_classic.memory import ConversationBufferMemory
 # Imports for RAG and LLM setup
@@ -158,11 +159,18 @@ def main():
     
     # Load resources
     try:
-        with st.sidebar.spinner("1. Preparing knowledge base (Chroma DB)..."):
+        # Use st.spinner() globally and update status in the sidebar
+        with st.spinner("Loading RAG resources..."):
+            st.sidebar.info("1. Preparing knowledge base (Chroma DB)...")
             vector_db = load_data_and_vectordb()
-        with st.sidebar.spinner("2. Loading LLM (Mistral)..."):
+            st.sidebar.success("1. Knowledge base ready!")
+            
+            st.sidebar.info("2. Loading LLM (Mistral)...")
             llm = load_llm()
+            st.sidebar.success("2. LLM loaded!")
+            
     except Exception as e:
+        # If an error still occurs, print the full error
         st.error(f"Failed to initialize RAG components: {e}")
         st.stop()
     
