@@ -84,7 +84,7 @@ def main():
     st.sidebar.markdown("Data loaded from **BankFAQs.csv**.") # Information for the user
 
     # Define the path to your CSV file
-    csv_file_path = "BankFAQs.csv"
+    csv_file_path = "data/BankFAQs.csv"
 
     # Use LangChain's CSVLoader to load the data
     # NOTE: The default setting will create document content from the entire row.
