@@ -5,35 +5,29 @@ try:
     import sys
     sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 except ImportError:
-    pass # Use standard sqlite3 if available
+    pass 
 
 # --- 2. Imports ---
 import streamlit as st
-import pandas as pd
-import os
+# Imports for conversational components and UI
+from streamlit_chat import message
+from langchain.chains import ConversationalRetrievalChain
+from langchain.memory import ConversationBufferMemory
+# Imports for RAG and LLM setup
 from langchain_huggingface import HuggingFaceEndpoint, HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
-from langchain_classic.chains import RetrievalQA
-from langchain_core.prompts import PromptTemplate
 from langchain_core.documents import Document
+import os
+import pandas as pd # Keeping pandas to easily process the data array
 
 # --- 3. Banque Masr Static Data (Replacing BankFAQs.csv) ---
-# Embedding the data directly for portability since file access is not guaranteed.
-BANK_FAQS = [
-    {"question": "What are the requirements for opening a new savings account?", "answer": "You need a valid national ID, a recent utility bill, and an initial deposit of 1000 EGP.", "class": "Accounts"},
-    {"question": "What is the maximum duration for a personal loan?", "answer": "The maximum duration is 7 years, or 84 months, subject to credit score approval.", "class": "Loans"},
-    {"question": "How do I report a lost or stolen credit card?", "answer": "Immediately call our 24/7 hotline at 19666. Your card will be instantly blocked. This is a critical security measure.", "class": "Cards"},
-    {"question": "Can I apply for a mortgage if I am self-employed?", "answer": "Yes, provided you can show consistent income statements for the past two years and provide business registration documents.", "class": "Loans"},
-    {"question": "What are the monthly maintenance fees for the Platinum account?", "answer": "The monthly maintenance fee is 50 EGP, which is waived if the minimum balance of 20,000 EGP is maintained for the entire month.", "class": "Accounts"},
-    {"question": "Do you offer car loans?", "answer": "Yes, car loans are available for both new and used vehicles, with repayment terms up to 5 years.", "class": "Loans"},
-]
-# Constants
+BANK_FAQS ="data/BankFAQs.csv" 
 REPO_ID = "mistralai/Mistral-7B-Instruct-v0.2"
 
 
 # --- 4. Setup & Configuration ---
 st.set_page_config(page_title="Banque Masr AI Assistant", page_icon="🏦", layout="centered")
-st.title("🏦 Banque Masr Intelligent Assistant")
+st.title("🏦 Banque Masr Conversational Assistant :books:")
 
 # Secrets Handling
 if "HUGGINGFACEHUB_API_TOKEN" not in os.environ:
@@ -49,15 +43,13 @@ if "HUGGINGFACEHUB_API_TOKEN" not in os.environ:
 
 @st.cache_resource
 def load_data_and_vectordb():
-    st.write("Preparing knowledge base...")
-    
     # Process embedded data into LangChain Documents
     documents = []
     for faq in BANK_FAQS:
         content = f"Question: {faq['question']}\nAnswer: {faq['answer']}"
         documents.append(Document(page_content=content, metadata={"class": faq["class"]}))
 
-    # Create embeddings using the same model as your original code
+    # Create embeddings
     hg_embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     
     # Create vector store (Chroma)
@@ -66,13 +58,11 @@ def load_data_and_vectordb():
         embedding=hg_embeddings,
         collection_name="chatbot_BankMasr"
     )
-    st.write("Knowledge base ready.")
     return vector_db
 
 @st.cache_resource
 def load_llm():
-    st.write("Loading LLM...")
-    # Initialize HuggingFace Endpoint LLM
+    # Initialize HuggingFace Endpoint LLM (using your Mistral model)
     llm = HuggingFaceEndpoint(
         repo_id=REPO_ID,
         max_new_tokens=512,
@@ -81,73 +71,100 @@ def load_llm():
         repetition_penalty=1.1,
         task="text-generation" 
     )
-    st.write("LLM loaded.")
     return llm
 
-# --- 6. Chain Setup ---
 
-# Prompt Template (Mistral formatting)
-template = """<|system|>
-You are a helpful and intelligent Finance QNA Expert for Banque Masr. 
-Use the following context to answer the user's question accurately. 
-If the answer is not in the context, say "Sorry, I don't know that information." and do not make up facts.
-</s>
-<|user|>
-Context: {context}
+# --- 6. Conversational Chain Functions ---
 
-Question: {question}
-</s>
-<|assistant|>
-"""
-PROMPT = PromptTemplate(input_variables=["context", "question"], template=template)
+def initialize_session_state():
+    # Initializes the state variables needed by streamlit_chat and the chain
+    if 'history' not in st.session_state:
+        st.session_state['history'] = [] # (user_query, model_answer) tuples for chain memory
+    if 'generated' not in st.session_state:
+        st.session_state['generated'] = ["Welcome to Banque Masr! How can I help you today?"]
+    if 'past' not in st.session_state:
+        st.session_state['past'] = ["Hey! 👋"]
 
-# Load resources
-try:
-    vector_db = load_data_and_vectordb()
-    llm = load_llm()
-except Exception as e:
-    st.error(f"Failed to initialize RAG components. Check API token and dependencies: {e}")
-    st.stop()
+def create_conversational_chain(vector_store, llm):
+    # Setup conversation memory
+    memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
 
-# Initialize Retriever and QA Chain
-retriever = vector_db.as_retriever(search_kwargs={"k": 3})
+    # Create the ConversationalRetrievalChain (replaces RetrievalQA)
+    chain = ConversationalRetrievalChain.from_llm(
+        llm=llm, 
+        chain_type='stuff',
+        retriever=vector_store.as_retriever(search_kwargs={"k": 3}),
+        memory=memory
+    )
+    return chain
 
-qa_chain = RetrievalQA.from_chain_type(
-    llm=llm,
-    chain_type="stuff",
-    retriever=retriever,
-    chain_type_kwargs={"prompt": PROMPT}
-)
+def conversation_chat(query, chain):
+    # This function invokes the chain and updates the history tuple list
+    result = chain({"question": query}) # history is managed internally by the chain's memory object
+    answer = result["answer"]
 
+    # Clean up Mistral-specific tokens
+    if "<|assistant|>" in answer:
+        answer = answer.split("<|assistant|>")[-1].strip()
+        
+    # LangChain's memory manages 'history', but we'll use our own list to display source history if needed.
+    # Note: st.session_state['history'] is no longer used by the chain, but we'll keep it for custom logging/display if required.
 
-# --- 7. Chat Interface ---
+    return answer
 
-if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "assistant", "content": "Welcome to Banque Masr! How can I help you today?"}]
+def display_chat_history(chain):
+    # Containers to manage layout
+    reply_container = st.container()
+    container = st.container()
 
-# Display chat messages from history
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+    with container:
+        # Use a standard chat input instead of st.form for cleaner UX
+        user_input = st.chat_input("Ask about loans, cards, or accounts...")
 
-# Handle user input
-if prompt := st.chat_input("Ask about loans, cards, or accounts..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    st.chat_message("user").markdown(prompt)
+        if user_input:
+            with st.spinner('Searching FAQs...'):
+                output = conversation_chat(user_input, chain)
 
-    with st.chat_message("assistant"):
-        with st.spinner("Searching FAQs..."):
-            try:
-                # Invoke the RAG chain
-                response = qa_chain.invoke(prompt)
-                result = response.get('result', "I'm having trouble retrieving an answer right now.")
+            # Update session state for the UI
+            st.session_state['past'].append(user_input)
+            st.session_state['generated'].append(output)
+
+    # Display chat history using streamlit_chat.message
+    if st.session_state['generated']:
+        with reply_container:
+            for i in range(len(st.session_state['generated'])):
+                # Skip the initial user greeting that doesn't correspond to an input
+                if i < len(st.session_state["past"]):
+                    message(st.session_state["past"][i], is_user=True, key=str(i) + '_user', avatar_style="thumbs")
                 
-                # Cleanup Mistral-specific tokens that may appear in the output
-                if "<|assistant|>" in result:
-                    result = result.split("<|assistant|>")[-1].strip()
-                
-                st.markdown(result)
-                st.session_state.messages.append({"role": "assistant", "content": result})
-            except Exception as e:
-                st.error(f"An error occurred during API call: {str(e)}")
-                st.session_state.messages.append({"role": "assistant", "content": "An internal error occurred. Please check the logs."})
+                message(st.session_state["generated"][i], key=str(i), avatar_style="fun-emoji")
+
+
+# --- 7. Main Execution ---
+
+def main():
+    # Initialize session state (past, generated, history)
+    initialize_session_state()
+
+    st.sidebar.subheader("RAG Model Status")
+    
+    # Load resources
+    try:
+        with st.sidebar.spinner("1. Preparing knowledge base (Chroma DB)..."):
+            vector_db = load_data_and_vectordb()
+        with st.sidebar.spinner("2. Loading LLM (Mistral)..."):
+            llm = load_llm()
+    except Exception as e:
+        st.error(f"Failed to initialize RAG components: {e}")
+        st.stop()
+    
+    st.sidebar.success("All systems ready!")
+
+    # Create the Conversational Chain object
+    chain = create_conversational_chain(vector_db, llm)
+    
+    # Display the conversational UI
+    display_chat_history(chain)
+
+if __name__ == "__main__":
+    main()
