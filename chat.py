@@ -16,10 +16,11 @@ import os
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_huggingface import HuggingFaceEndpoint
 from langchain_community.vectorstores import Chroma
-from langchain.chains import RetrievalQA # Corrected import path
+=
+from langchain_classic.chains import RetrievalQA
 from langchain_core.prompts import PromptTemplate
+from langchain_community.llms import HuggingFaceHub
 from langchain_core.documents import Document
-
 # Removed unnecessary imports:
 # HuggingFacePipeline, HuggingFaceHub, transformers, AutoTokenizer, torch
 
