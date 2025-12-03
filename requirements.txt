@@ -8,4 +8,7 @@ sentence-transformers
 chromadb
 python-dotenv
 pysqlite3-binary
+torch 
+transformer 
+
 
