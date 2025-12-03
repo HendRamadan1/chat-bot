@@ -32,23 +32,23 @@ BANK_FAQS = [
     {"question": "Do you offer car loans?", "answer": "Yes, car loans are available for both new and used vehicles, with repayment terms up to 5 years.", "class": "Loans"},
 ]
 # Constants
-REPO_ID = "mistralai/Mistral-7B-Instruct-v0.2"
+# CHANGED MODEL: Switching to a public, non-gated model (Gemma) to bypass permission/token errors
+REPO_ID = "google/gemma-2b-it"
 
-# Prompt Template for Conversational Chain (using Mistral formatting)
-CUSTOM_TEMPLATE = """<|system|>
+# Prompt Template for Conversational Chain (using a general instruction format)
+CUSTOM_TEMPLATE = """
 You are a helpful and intelligent Finance QNA Expert for Banque Masr. 
 Use the following context to answer the user's question accurately. 
 If the answer is not in the context, say "Sorry, I don't know that information." and do not make up facts.
 
 Chat History:
 {chat_history}
-</s>
-<|user|>
+
 Context: {context}
 
 Question: {question}
-</s>
-<|assistant|>
+
+Answer:
 """
 PROMPT = PromptTemplate(
     input_variables=["context", "question", "chat_history"], 
@@ -84,7 +84,7 @@ def load_data_and_vectordb():
 
 @st.cache_resource
 def load_llm():
-    # Initialize HuggingFace Endpoint LLM (using your Mistral model)
+    # Initialize HuggingFace Endpoint LLM (using the new Gemma model)
     llm = HuggingFaceEndpoint(
         repo_id=REPO_ID,
         max_new_tokens=512,
@@ -127,10 +127,7 @@ def conversation_chat(query, chain):
     result = chain({"question": query}) 
     answer = result["answer"]
 
-    # Clean up Mistral-specific tokens
-    if "<|assistant|>" in answer:
-        answer = answer.split("<|assistant|>")[-1].strip()
-        
+    # Removed Mistral-specific cleanup, as the new prompt format is standard
     return answer
 
 def display_chat_history(chain):
@@ -186,7 +183,7 @@ def main():
             vector_db = load_data_and_vectordb()
             st.sidebar.success("1. Knowledge base ready!")
             
-            st.sidebar.info("2. Loading LLM (Mistral)...")
+            st.sidebar.info(f"2. Loading LLM ({REPO_ID})...")
             llm = load_llm()
             st.sidebar.success("2. LLM loaded!")
             
@@ -195,9 +192,8 @@ def main():
         st.error("Failed to initialize RAG components.")
         st.error(f"Error details: {e}")
         st.warning(
-            "The error is likely caused by an issue connecting to the Hugging Face Inference API. "
-            "Please ensure that your `HUGGINGFACEHUB_API_TOKEN` is valid and has sufficient permissions "
-            f"to access the model: `{REPO_ID}`. You may need to accept the model's terms on Hugging Face Hub."
+            "The error is almost certainly caused by an issue with the Hugging Face API Token or network access. "
+            f"Please double-check that your `HUGGINGFACEHUB_API_TOKEN` is valid for model access."
         )
         st.stop()
     
