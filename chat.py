@@ -61,17 +61,22 @@ def load_data_and_vectordb():
 
 @st.cache_resource
 def load_llm():
-    # CHANGED: Removed 'task="text-generation"' to allow auto-configuration
-    # This prevents the "provider featherless-ai" error
-    llm = HuggingFaceEndpoint(
+    # SWITCHED to HuggingFaceHub and set the task to "conversational"
+    # as required by the Mistral-7B-Instruct-v0.3 provider (together)
+    llm = HuggingFaceHub(
         repo_id=REPO_ID,
-        max_new_tokens=512,
-        do_sample=True,
-        temperature=0.7,
-        repetition_penalty=1.1
+        # IMPORTANT: Set the correct task
+        task="conversational", 
+        model_kwargs={
+            "max_new_tokens": 512,
+            "do_sample": True,
+            "temperature": 0.7,
+            "repetition_penalty": 1.1,
+            # Additional keys might be needed for conversational tasks 
+            # but usually, the retrievalQA chain handles the context/prompt.
+        }
     )
     return llm
-
 # --- 5. App Logic ---
 
 with st.spinner("Initializing AI Brain..."):
