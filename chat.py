@@ -40,7 +40,7 @@ st.title("🏦 Banque Masr Conversational Assistant :books:")
 
 # Secrets Handling
 if "HUGGINGFACEHUB_API_TOKEN" not in os.environ:
-    api_key = st.sidebar.text_input("Enter Hugging Face API Token", type="password")
+    api_key = st.spinner.text_input("Enter Hugging Face API Token", type="password")
     if api_key:
         os.environ["HUGGINGFACEHUB_API_TOKEN"] = api_key
     else:
