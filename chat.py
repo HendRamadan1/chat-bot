@@ -61,21 +61,17 @@ def load_data_and_vectordb():
 
 @st.cache_resource
 def load_llm():
-    # SWITCHED to HuggingFaceHub and set the task to "conversational"
-    # as required by the Mistral-7B-Instruct-v0.3 provider (together)
+    # FIX: Pass generation parameters (max_new_tokens, temperature, etc.) 
+    # directly to the constructor, as required by Pydantic V2 validation.
     llm = HuggingFaceEndpoint(
         repo_id=REPO_ID,
-        # IMPORTANT: Set the correct task
-        task="conversational", 
-        model_kwargs={
-            "max_new_tokens": 512,
-            "do_sample": True,
-            "temperature": 0.7,
-            "repetition_penalty": 1.1,
-            # Additional keys might be needed for conversational tasks 
-            # but usually, the retrievalQA chain handles the context/prompt.
-        }
+        max_new_tokens=512,         # <--- Direct Argument
+        do_sample=True,             # <--- Direct Argument
+        temperature=0.7,            # <--- Direct Argument
+        repetition_penalty=1.1,     # <--- Direct Argument
+        # No 'model_kwargs' should be used for these specific parameters.
     )
+
     return llm
 # --- 5. App Logic ---
 
