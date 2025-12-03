@@ -11,7 +11,7 @@ except ImportError:
 import streamlit as st
 # Imports for conversational components and UI
 from streamlit_chat import message
-from langchain_classic.chainsimport ConversationalRetrievalChain
+from langchain_classic.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
 # Imports for RAG and LLM setup
 from langchain_huggingface import HuggingFaceEndpoint, HuggingFaceEmbeddings
