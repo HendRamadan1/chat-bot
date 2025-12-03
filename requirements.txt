@@ -7,4 +7,8 @@ langchain-core
 langchain-classic
 chromadb
 pysqlite3-binary
+langchain-chroma
+sentence-transformers
+python-dotenv
+pysqlite3-binary
 
