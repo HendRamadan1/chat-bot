@@ -1,5 +1,3 @@
-# --- 1. Database Fix (Must be at the very top) ---
-# Required for running Chroma DB on some environments (like Streamlit Cloud)
 try:
     __import__('pysqlite3')
     import sys
@@ -14,7 +12,6 @@ from streamlit_chat import message
 # FIXED: Use standard LangChain imports
 from langchain_classic.chains import ConversationalRetrievalChain
 from langchain_classic.memory import ConversationBufferMemory
-# Imports for RAG and LLM setup
 from langchain_huggingface import HuggingFaceEndpoint, HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
@@ -192,8 +189,14 @@ def main():
             st.sidebar.success("2. LLM loaded!")
             
     except Exception as e:
-        # If an error still occurs, print the full error
-        st.error(f"Failed to initialize RAG components: {e}")
+        # If an error still occurs, print the full error, and provide specific guidance
+        st.error("Failed to initialize RAG components.")
+        st.error(f"Error details: {e}")
+        st.warning(
+            "The error is likely caused by an issue connecting to the Hugging Face Inference API. "
+            "Please ensure that your `HUGGINGFACEHUB_API_TOKEN` is valid and has sufficient permissions "
+            f"to access the model: `{REPO_ID}`."
+        )
         st.stop()
     
     st.sidebar.success("All systems ready!")
