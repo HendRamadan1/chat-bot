@@ -11,15 +11,16 @@ except ImportError:
 import streamlit as st
 # Imports for conversational components and UI
 from streamlit_chat import message
-# RESTORED: These should import from the standard 'langchain' package path
-from langchain_classic.chains import ConversationalRetrievalChain
-from langchain_classic.memory import ConversationBufferMemory
+# FIXED: Use standard LangChain imports
+from langchain.chains import ConversationalRetrievalChain 
+from langchain.memory import ConversationBufferMemory 
 # Imports for RAG and LLM setup
 from langchain_huggingface import HuggingFaceEndpoint, HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
+from langchain_core.prompts import PromptTemplate # Added for custom RAG prompting
 import os
-import pandas as pd # Keeping pandas to easily process the data array
+import pandas as pd 
 
 # --- 3. Banque Masr Static Data (Replacing BankFAQs.csv) ---
 BANK_FAQS = [
@@ -33,6 +34,27 @@ BANK_FAQS = [
 # Constants
 REPO_ID = "mistralai/Mistral-7B-Instruct-v0.2"
 
+# Prompt Template for Conversational Chain (using Mistral formatting)
+CUSTOM_TEMPLATE = """<|system|>
+You are a helpful and intelligent Finance QNA Expert for Banque Masr. 
+Use the following context to answer the user's question accurately. 
+If the answer is not in the context, say "Sorry, I don't know that information." and do not make up facts.
+
+Chat History:
+{chat_history}
+</s>
+<|user|>
+Context: {context}
+
+Question: {question}
+</s>
+<|assistant|>
+"""
+PROMPT = PromptTemplate(
+    input_variables=["context", "question", "chat_history"], 
+    template=CUSTOM_TEMPLATE
+)
+
 
 # --- 4. Setup & Configuration ---
 st.set_page_config(page_title="Banque Masr AI Assistant", page_icon="🏦", layout="centered")
@@ -40,7 +62,8 @@ st.title("🏦 Banque Masr Conversational Assistant :books:")
 
 # Secrets Handling
 if "HUGGINGFACEHUB_API_TOKEN" not in os.environ:
-    api_key = st.spinner.text_input("Enter Hugging Face API Token", type="password")
+    # FIXED: Changed st.spinner.text_input to st.sidebar.text_input
+    api_key = st.sidebar.text_input("Enter Hugging Face API Token", type="password") 
     if api_key:
         os.environ["HUGGINGFACEHUB_API_TOKEN"] = api_key
     else:
@@ -88,7 +111,7 @@ def load_llm():
 def initialize_session_state():
     # Initializes the state variables needed by streamlit_chat and the chain
     if 'history' not in st.session_state:
-        st.session_state['history'] = [] # (user_query, model_answer) tuples for chain memory
+        st.session_state['history'] = [] 
     if 'generated' not in st.session_state:
         st.session_state['generated'] = ["Welcome to Banque Masr! How can I help you today?"]
     if 'past' not in st.session_state:
@@ -103,22 +126,21 @@ def create_conversational_chain(vector_store, llm):
         llm=llm, 
         chain_type='stuff',
         retriever=vector_store.as_retriever(search_kwargs={"k": 3}),
-        memory=memory
+        memory=memory,
+        # ADDED: Pass the custom prompt to ensure persona and history are used
+        combine_docs_chain_kwargs={"prompt": PROMPT} 
     )
     return chain
 
 def conversation_chat(query, chain):
-    # This function invokes the chain and updates the history tuple list
-    result = chain({"question": query}) # history is managed internally by the chain's memory object
+    # This function invokes the chain, which manages history internally
+    result = chain({"question": query}) 
     answer = result["answer"]
 
     # Clean up Mistral-specific tokens
     if "<|assistant|>" in answer:
         answer = answer.split("<|assistant|>")[-1].strip()
         
-    # LangChain's memory manages 'history', but we'll use our own list to display source history if needed.
-    # Note: st.session_state['history'] is no longer used by the chain, but we'll keep it for custom logging/display if required.
-
     return answer
 
 def display_chat_history(chain):
@@ -159,7 +181,7 @@ def main():
     
     # Load resources
     try:
-        # Use st.spinner() globally and update status in the sidebar
+        # Correct Streamlit spinner pattern
         with st.spinner("Loading RAG resources..."):
             st.sidebar.info("1. Preparing knowledge base (Chroma DB)...")
             vector_db = load_data_and_vectordb()
