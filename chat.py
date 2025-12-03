@@ -12,7 +12,7 @@ import streamlit as st
 # Imports for conversational components and UI
 from streamlit_chat import message
 from langchain_classic.chains import ConversationalRetrievalChain
-from langchain_community.memory import ConversationBufferMemory
+from langchain_classic.memory import ConversationBufferMemory
 # Imports for RAG and LLM setup
 from langchain_huggingface import HuggingFaceEndpoint, HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
@@ -21,7 +21,15 @@ import os
 import pandas as pd # Keeping pandas to easily process the data array
 
 # --- 3. Banque Masr Static Data (Replacing BankFAQs.csv) ---
-BANK_FAQS ="data/BankFAQs.csv" 
+BANK_FAQS = [
+    {"question": "What are the requirements for opening a new savings account?", "answer": "You need a valid national ID, a recent utility bill, and an initial deposit of 1000 EGP.", "class": "Accounts"},
+    {"question": "What is the maximum duration for a personal loan?", "answer": "The maximum duration is 7 years, or 84 months, subject to credit score approval.", "class": "Loans"},
+    {"question": "How do I report a lost or stolen credit card?", "answer": "Immediately call our 24/7 hotline at 19666. Your card will be instantly blocked. This is a critical security measure.", "class": "Cards"},
+    {"question": "Can I apply for a mortgage if I am self-employed?", "answer": "Yes, provided you can show consistent income statements for the past two years and provide business registration documents.", "class": "Loans"},
+    {"question": "What are the monthly maintenance fees for the Platinum account?", "answer": "The monthly maintenance fee is 50 EGP, which is waived if the minimum balance of 20,000 EGP is maintained for the entire month.", "class": "Accounts"},
+    {"question": "Do you offer car loans?", "answer": "Yes, car loans are available for both new and used vehicles, with repayment terms up to 5 years.", "class": "Loans"},
+]
+# Constants
 REPO_ID = "mistralai/Mistral-7B-Instruct-v0.2"
 
 
