@@ -17,7 +17,8 @@ st.set_page_config(page_title="Banque Masr AI Assistant", page_icon="🏦", layo
 st.title("🏦 Banque Masr Intelligent Assistant")
 
 # --- Constants ---
-MODEL_ID = 'HuggingFaceH4/zephyr-7b-beta'
+MODEL_ID = "microsoft/phi-2"
+
 DATA_PATH = "data/BankFAQs.csv" # Ensure your CSV is in a 'data' folder
 
 # --- 1. Load Resources (Cached) ---
