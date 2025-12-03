@@ -1,12 +1,9 @@
 import streamlit as st
 import pandas as pd
-import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline, BitsAndBytesConfig
-from langchain_community.llms import HuggingFacePipeline
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_community.vectorstores import Chroma
-from langchain_classic.chains import RetrievalQA
-from langchain_core.prompts import PromptTemplate
+from langchain_huggingface import HuggingFaceEndpoint, HuggingFaceEmbeddings
+from langchain_chroma import Chroma
+from langchain.chains import RetrievalQA
+from langchain.prompts import PromptTemplate
 from langchain_core.documents import Document
 import os
 
@@ -15,8 +12,21 @@ st.set_page_config(page_title="Banque Masr AI Assistant", page_icon="🏦", layo
 st.title("🏦 Banque Masr Intelligent Assistant")
 
 # --- Constants ---
-MODEL_ID = 'HuggingFaceH4/zephyr-7b-beta'
-DATA_PATH = "data/BankFAQs.csv" # Ensure your CSV is in a 'data' folder
+# We use the EXACT same model ID as your notebook
+REPO_ID = "HuggingFaceH4/zephyr-7b-beta"
+DATA_PATH = "data/BankFAQs.csv" 
+
+# --- 0. API Token Setup ---
+# Check if token is in secrets (for deployed app) or ask user (for local run)
+if "HUGGINGFACEHUB_API_TOKEN" in st.secrets:
+    os.environ["HUGGINGFACEHUB_API_TOKEN"] = st.secrets["HUGGINGFACEHUB_API_TOKEN"]
+else:
+    api_key = st.sidebar.text_input("Enter Hugging Face Token", type="password")
+    if api_key:
+        os.environ["HUGGINGFACEHUB_API_TOKEN"] = api_key
+    else:
+        st.warning("Please enter your Hugging Face API Token in the sidebar to proceed.")
+        st.stop()
 
 # --- 1. Load Resources (Cached) ---
 
@@ -24,11 +34,12 @@ DATA_PATH = "data/BankFAQs.csv" # Ensure your CSV is in a 'data' folder
 def load_data_and_vectordb():
     """Loads CSV, processes it, and sets up ChromaDB."""
     if not os.path.exists(DATA_PATH):
-        st.error(f"File not found: {DATA_PATH}. Please upload the CSV.")
+        st.error(f"File not found: {DATA_PATH}. Please ensure the CSV is in the 'data' folder.")
         return None
 
     # Load Data
     bank = pd.read_csv(DATA_PATH)
+    # Combine question and answer for better context retrieval
     bank["content"] = bank.apply(lambda row: f"Question: {row['Question']}\nAnswer: {row['Answer']}", axis=1)
     
     # Create Documents
@@ -36,83 +47,62 @@ def load_data_and_vectordb():
     for _, row in bank.iterrows():
         documents.append(Document(page_content=row["content"], metadata={"class": row["Class"]}))
 
-    # Embeddings
+    # Embeddings 
+    # We use the same lightweight embedding model locally (CPU friendly)
     hg_embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     
-    # Vector DB (In-memory for session or persistent)
-    # Using a persistent directory so it doesn't rebuild unnecessarily
+    # Vector DB
+    # We rebuild it in memory for the session to avoid persistent storage issues on Cloud
     vector_db = Chroma.from_documents(
         documents=documents,
         embedding=hg_embeddings,
-        collection_name="chatbot_BankMasr",
-        persist_directory="./chroma_db_streamlit"
+        collection_name="chatbot_BankMasr"
     )
     return vector_db
 
 @st.cache_resource
 def load_llm():
-    """Loads the Zephyr LLM with 4-bit Quantization."""
+    """Loads the Zephyr LLM via Hugging Face API."""
     
-    # Quantization Config
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type='nf4',
-        bnb_4bit_use_double_quant=True,
-        bnb_4bit_compute_dtype=torch.bfloat16
-    )
-
-    # Load Tokenizer
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-
-    # Load Model
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID,
-        trust_remote_code=True,
-        quantization_config=bnb_config,
-        device_map='auto'
-    )
-
-    # Create Pipeline
-    text_generation_pipeline = pipeline(
-        "text-generation",
-        model=model,
-        tokenizer=tokenizer,
-        model_kwargs={"torch_dtype": torch.float16},
-        max_new_tokens=500,
+    llm = HuggingFaceEndpoint(
+        repo_id=REPO_ID,
+        task="text-generation",
+        max_new_tokens=512,
         do_sample=True,
         temperature=0.7,
-        top_k=50,
-        top_p=0.95,
-        return_full_text=False # Important for LangChain
+        repetition_penalty=1.1,
+        # The token is automatically read from os.environ
     )
-
-    llm = HuggingFacePipeline(pipeline=text_generation_pipeline)
     return llm
 
 # --- 2. Initialize Application ---
 
-with st.spinner("Initializing AI Brain... (This depends on your GPU)"):
+with st.spinner("Initializing AI Brain..."):
     vector_db = load_data_and_vectordb()
     llm = load_llm()
 
-if vector_db is None or llm is None:
+if vector_db is None:
     st.stop()
 
 # --- 3. Setup QA Chain ---
 
-template = """
-You are a Finance QNA Expert for Banque Masr. Analyze the Query and Respond to the Customer with a suitable and helpful answer based ONLY on the context provided below.
-If you don't know the answer based on the context, just say "Sorry, I don't know." do not make up facts.
-
+# Zephyr-specific prompt template for better performance
+template = """<|system|>
+You are a helpful and intelligent Finance QNA Expert for Banque Masr. 
+Use the following context to answer the user's question accurately. 
+If the answer is not in the context, say "Sorry, I don't know that information." and do not make up facts.
+</s>
+<|user|>
 Context: {context}
 
 Question: {question}
-
-Answer:
+</s>
+<|assistant|>
 """
+
 PROMPT = PromptTemplate(input_variables=["context", "question"], template=template)
 
-retriever = vector_db.as_retriever(search_kwargs={"k": 2})
+retriever = vector_db.as_retriever(search_kwargs={"k": 3})
 
 qa_chain = RetrievalQA.from_chain_type(
     llm=llm,
@@ -123,31 +113,32 @@ qa_chain = RetrievalQA.from_chain_type(
 
 # --- 4. Chat Interface ---
 
-# Initialize chat history
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "assistant", "content": "Welcome to Banque Masr! How can I help you today?"}]
+    st.session_state.messages = [{"role": "assistant", "content": "Welcome to Banque Masr! How can I help you with your banking questions?"}]
 
-# Display chat messages from history on app rerun
+# Display chat history
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# React to user input
-if prompt := st.chat_input("Ask about loans, accounts, or cards..."):
-    # Display user message in chat message container
-    st.chat_message("user").markdown(prompt)
-    # Add user message to chat history
+# Handle User Input
+if prompt := st.chat_input("Ask about credit cards, loans, or accounts..."):
+    # 1. Add user message to state and display
     st.session_state.messages.append({"role": "user", "content": prompt})
+    st.chat_message("user").markdown(prompt)
 
+    # 2. Generate Assistant Response
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             try:
-                # Run the chain
                 response = qa_chain.invoke(prompt)
                 result = response['result']
-                st.markdown(result)
                 
-                # Add assistant response to chat history
+                # Clean up response if the model repeats the prompt (common in some API calls)
+                if "<|assistant|>" in result:
+                    result = result.split("<|assistant|>")[-1].strip()
+                
+                st.markdown(result)
                 st.session_state.messages.append({"role": "assistant", "content": result})
             except Exception as e:
-                st.error(f"An error occurred: {e}")
+                st.error(f"Error: {str(e)}")
