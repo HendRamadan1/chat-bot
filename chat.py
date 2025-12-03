@@ -62,7 +62,7 @@ st.title("🏦 Banque Masr Conversational Assistant :books:")
 
 # Secrets Handling
 if "HUGGINGFACEHUB_API_TOKEN" not in os.environ:
-    # FIXED: Changed st.spinner.text_input to st.sidebar.text_input
+    # FIXED: Use st.sidebar for text input
     api_key = st.sidebar.text_input("Enter Hugging Face API Token", type="password") 
     if api_key:
         os.environ["HUGGINGFACEHUB_API_TOKEN"] = api_key
@@ -127,7 +127,7 @@ def create_conversational_chain(vector_store, llm):
         chain_type='stuff',
         retriever=vector_store.as_retriever(search_kwargs={"k": 3}),
         memory=memory,
-        # ADDED: Pass the custom prompt to ensure persona and history are used
+        # Pass the custom prompt to ensure persona and history are used
         combine_docs_chain_kwargs={"prompt": PROMPT} 
     )
     return chain
@@ -181,7 +181,7 @@ def main():
     
     # Load resources
     try:
-        # Correct Streamlit spinner pattern
+        # CORRECTED: Uses st.spinner globally and st.sidebar.info for status updates
         with st.spinner("Loading RAG resources..."):
             st.sidebar.info("1. Preparing knowledge base (Chroma DB)...")
             vector_db = load_data_and_vectordb()
