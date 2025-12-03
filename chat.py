@@ -63,7 +63,7 @@ def load_data_and_vectordb():
 def load_llm():
     # SWITCHED to HuggingFaceHub and set the task to "conversational"
     # as required by the Mistral-7B-Instruct-v0.3 provider (together)
-    llm = HuggingFaceHub(
+    llm = HuggingFaceEndpoint(
         repo_id=REPO_ID,
         # IMPORTANT: Set the correct task
         task="conversational", 
