@@ -4,6 +4,7 @@ import sys
 sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 
 # --- 2. Imports ---
+# --- 2. Imports ---
 import streamlit as st
 import pandas as pd
 from langchain_huggingface import HuggingFaceEndpoint, HuggingFaceEmbeddings
@@ -19,14 +20,14 @@ st.set_page_config(page_title="Banque Masr AI Assistant", page_icon="🏦", layo
 st.title("🏦 Banque Masr Intelligent Assistant")
 
 # Constants
-REPO_ID = "HuggingFaceH4/zephyr-7b-beta"
+# CHANGED: Switched to Mistral v0.3 which is more stable on the free API than Zephyr
+REPO_ID = "mistralai/Mistral-7B-Instruct-v0.3"
 DATA_PATH = "data/BankFAQs.csv" 
 
 # Secrets Handling
 if "HUGGINGFACEHUB_API_TOKEN" in st.secrets:
     os.environ["HUGGINGFACEHUB_API_TOKEN"] = st.secrets["HUGGINGFACEHUB_API_TOKEN"]
 else:
-    # Fallback for local testing if secrets aren't set
     api_key = st.sidebar.text_input("Enter Hugging Face Token", type="password")
     if api_key:
         os.environ["HUGGINGFACEHUB_API_TOKEN"] = api_key
@@ -60,10 +61,10 @@ def load_data_and_vectordb():
 
 @st.cache_resource
 def load_llm():
-    # This is where your error was: HuggingFaceEndpoint must be imported above
+    # CHANGED: Removed 'task="text-generation"' to allow auto-configuration
+    # This prevents the "provider featherless-ai" error
     llm = HuggingFaceEndpoint(
         repo_id=REPO_ID,
-        task="text-generation",
         max_new_tokens=512,
         do_sample=True,
         temperature=0.7,
