@@ -12,7 +12,7 @@ import streamlit as st
 # Imports for conversational components and UI
 from streamlit_chat import message
 from langchain_classic.chains import ConversationalRetrievalChain
-from langchain.memory import ConversationBufferMemory
+from langchain_community.memory import ConversationBufferMemory
 # Imports for RAG and LLM setup
 from langchain_huggingface import HuggingFaceEndpoint, HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
