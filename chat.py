@@ -4,15 +4,16 @@ import sys
 sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 
 # --- 2. Imports ---
+# --- 2. Imports ---
 import streamlit as st
 import pandas as pd
-import os
 from langchain_huggingface import HuggingFaceEndpoint, HuggingFaceEmbeddings
-from langchain_chroma import Chroma
-from langchain.chains import RetrievalQA
-from langchain.prompts import PromptTemplate
+# from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import Chroma
+from langchain_classic.chains import RetrievalQA
+from langchain_core.prompts import PromptTemplate
 from langchain_core.documents import Document
-
+import os
 # --- 3. Setup & Configuration ---
 st.set_page_config(page_title="Banque Masr AI Assistant", page_icon="🏦", layout="centered")
 st.title("🏦 Banque Masr Intelligent Assistant")
