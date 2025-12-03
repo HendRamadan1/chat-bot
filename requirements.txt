@@ -1,9 +1,10 @@
 streamlit
-streamlit-chat
+pandas
 langchain
-# For HuggingFaceEmbeddings:
+langchain-community
+langchain-huggingface
+langchain-chroma
 sentence-transformers
-
-faiss-cpu
-
-llama-cpp-python
+chromadb
+python-dotenv
+pysqlite3-binary
