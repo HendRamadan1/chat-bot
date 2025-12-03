@@ -1,4 +1,8 @@
-# --- 1. Database Fix (Must be at the very top) ---
+# This is a Streamlit RAG application using ChromaDB for retrieval and 
+# Mistral-7B-Instruct-v0.3 via the HuggingFace Inference API for generation.
+
+# --- 1. Database Fix (Must be at the very top for Streamlit deployment) ---
+# This ensures ChromaDB can use a modern SQLite version.
 __import__('pysqlite3')
 import sys
 sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
@@ -7,29 +11,32 @@ sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 import streamlit as st
 import pandas as pd
 import os
-from langchain_community.llms import HuggingFacePipeline
-from langchain_huggingface import HuggingFaceEndpoint ,HuggingFaceEmbeddings
+
+# Standard LangChain packages
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEndpoint
 from langchain_community.vectorstores import Chroma
-from langchain_classic.chains import RetrievalQA
+from langchain.chains import RetrievalQA # Corrected import path
 from langchain_core.prompts import PromptTemplate
-from langchain_community.llms import HuggingFaceHub
 from langchain_core.documents import Document
-import transformers
-from transformers import AutoTokenizer
+
+# Removed unnecessary imports:
+# HuggingFacePipeline, HuggingFaceHub, transformers, AutoTokenizer, torch
 
 # --- 3. Setup & Configuration ---
 st.set_page_config(page_title="Banque Masr AI Assistant", page_icon="🏦", layout="centered")
 st.title("🏦 Banque Masr Intelligent Assistant")
 
 # Constants
-# CHANGED: Switched to Mistral v0.3 which is more stable on the free API than Zephyr
 REPO_ID = "mistralai/Mistral-7B-Instruct-v0.3"
 DATA_PATH = "data/BankFAQs.csv" 
 
 # Secrets Handling
 if "HUGGINGFACEHUB_API_TOKEN" in st.secrets:
+    # Use Streamlit secrets if available
     os.environ["HUGGINGFACEHUB_API_TOKEN"] = st.secrets["HUGGINGFACEHUB_API_TOKEN"]
 else:
+    # Fallback to user input for the API key
     api_key = st.sidebar.text_input("Enter Hugging Face Token", type="password")
     if api_key:
         os.environ["HUGGINGFACEHUB_API_TOKEN"] = api_key
@@ -41,10 +48,12 @@ else:
 
 @st.cache_resource
 def load_data_and_vectordb():
+    """Loads CSV data, processes it into LangChain Documents, and creates/loads a Chroma vector store."""
     if not os.path.exists(DATA_PATH):
         st.error(f"File not found: {DATA_PATH}. Please check your GitHub folder structure.")
         return None
 
+    # Load and process the FAQ data
     bank = pd.read_csv(DATA_PATH)
     bank["content"] = bank.apply(lambda row: f"Question: {row['Question']}\nAnswer: {row['Answer']}", axis=1)
     
@@ -52,8 +61,10 @@ def load_data_and_vectordb():
     for _, row in bank.iterrows():
         documents.append(Document(page_content=row["content"], metadata={"class": row["Class"]}))
 
+    # Initialize the embedding model
     hg_embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
     
+    # Create the vector store
     vector_db = Chroma.from_documents(
         documents=documents,
         embedding=hg_embeddings,
@@ -63,49 +74,35 @@ def load_data_and_vectordb():
 
 @st.cache_resource
 def load_llm():
-    os.environ['CUDA_LAUNCH_BLOCKING']='1'
-    model_config=transformers.AutoConfig.from_pretrained(
-      REPO_ID,
-      trust_remote_code=True,
-      max_new_tokens=1024
-    )
+    """Initializes the LLM using the HuggingFaceEndpoint wrapper for the Inference API."""
+    # FIX: Using HuggingFaceEndpoint (API call) instead of loading the model locally.
+    # FIX: All generation parameters (max_new_tokens, temperature, etc.) are passed directly
+    # to resolve the Pydantic ValidationError.
     
-    model=transformers.AutoModelForCausalLM.from_pretrained(
-        REPO_ID,
-        trust_remote_code=True,
-        config=model_config,
-        # quantization_config=bnb_config,
-        device_map='auto'
-    
+    llm = HuggingFaceEndpoint(
+        repo_id=REPO_ID,
+        max_new_tokens=512,         # Direct Argument
+        do_sample=True,             # Direct Argument
+        temperature=0.7,            # Direct Argument
+        repetition_penalty=1.1,     # Direct Argument
     )
-    
-    tokenizer = AutoTokenizer.from_pretrained(REPO_ID)
-    query_pipeline = transformers.pipeline(
-        "text-generation",
-        model=model,
-        tokenizer=tokenizer,
-        torch_dtype=torch.float16,
-        max_length=6000,  # Increase max_length
-        max_new_tokens=500,  # Control the number of new tokens generated
-        device_map="auto",
-    )
-   
-    llm = HuggingFacePipeline(pipeline=query_pipeline)
-   
-
-
-
     return llm
+
 # --- 5. App Logic ---
 
 with st.spinner("Initializing AI Brain..."):
     vector_db = load_data_and_vectordb()
-    llm = load_llm()
+    # Check if API token is set before attempting to load LLM
+    if "HUGGINGFACEHUB_API_TOKEN" in os.environ and os.environ["HUGGINGFACEHUB_API_TOKEN"]:
+        llm = load_llm()
+    else:
+        st.warning("API Token is not set. Cannot initialize LLM.")
+        llm = None
 
 if vector_db is None or llm is None:
     st.stop()
 
-# Prompt Template
+# Prompt Template using Mistral's instruction format
 template = """<|system|>
 You are a helpful and intelligent Finance QNA Expert for Banque Masr. 
 Use the following context to answer the user's question accurately. 
@@ -120,6 +117,7 @@ Question: {question}
 """
 PROMPT = PromptTemplate(input_variables=["context", "question"], template=template)
 
+# Retriever and RAG Chain setup
 retriever = vector_db.as_retriever(search_kwargs={"k": 3})
 
 qa_chain = RetrievalQA.from_chain_type(
@@ -144,12 +142,20 @@ if prompt := st.chat_input("Ask about loans, cards, or accounts..."):
     with st.chat_message("assistant"):
         with st.spinner("Thinking..."):
             try:
+                # Invoke the RAG chain
                 response = qa_chain.invoke(prompt)
                 result = response['result']
-                # Cleanup tokens if they appear in output
+                
+                # Clean up tokens generated by the LLM
                 if "<|assistant|>" in result:
                     result = result.split("<|assistant|>")[-1].strip()
+                if "<|user|>" in result:
+                    result = result.split("<|user|>")[0].strip()
+
                 st.markdown(result)
                 st.session_state.messages.append({"role": "assistant", "content": result})
             except Exception as e:
-                st.error(f"Error: {str(e)}")
+                # Added robust error logging and display
+                error_message = f"An error occurred during generation. This may be due to a malformed prompt or API issue: {str(e)}"
+                st.error(error_message)
+                st.session_state.messages.append({"role": "assistant", "content": error_message})
