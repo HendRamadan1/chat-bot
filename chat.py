@@ -6,8 +6,8 @@ sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 # --- 2. Imports ---
 import streamlit as st
 import pandas as pd
-from langchain_community.llms import huggingface_endpoint
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEndpoint, HuggingFaceEmbeddings
+# from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_classic.chains import RetrievalQA
 from langchain_core.prompts import PromptTemplate
