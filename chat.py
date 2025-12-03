@@ -7,13 +7,15 @@ sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 import streamlit as st
 import pandas as pd
 import os
-
+from langchain_community.llms import HuggingFacePipeline
 from langchain_huggingface import HuggingFaceEndpoint ,HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_classic.chains import RetrievalQA
 from langchain_core.prompts import PromptTemplate
 from langchain_community.llms import HuggingFaceHub
 from langchain_core.documents import Document
+import transformers
+from transformers import AutoTokenizer
 
 # --- 3. Setup & Configuration ---
 st.set_page_config(page_title="Banque Masr AI Assistant", page_icon="🏦", layout="centered")
@@ -61,16 +63,37 @@ def load_data_and_vectordb():
 
 @st.cache_resource
 def load_llm():
-    # FIX: Pass generation parameters (max_new_tokens, temperature, etc.) 
-    # directly to the constructor, as required by Pydantic V2 validation.
-    llm = HuggingFaceEndpoint(
-        repo_id=REPO_ID,
-        max_new_tokens=512,         # <--- Direct Argument
-        do_sample=True,             # <--- Direct Argument
-        temperature=0.7,            # <--- Direct Argument
-        repetition_penalty=1.1,     # <--- Direct Argument
-        # No 'model_kwargs' should be used for these specific parameters.
+    os.environ['CUDA_LAUNCH_BLOCKING']='1'
+    model_config=transformers.AutoConfig.from_pretrained(
+      REPO_ID,
+      trust_remote_code=True,
+      max_new_tokens=1024
     )
+    
+    model=transformers.AutoModelForCausalLM.from_pretrained(
+        REPO_ID,
+        trust_remote_code=True,
+        config=model_config,
+        # quantization_config=bnb_config,
+        device_map='auto'
+    
+    )
+    
+    tokenizer = AutoTokenizer.from_pretrained(REPO_ID)
+    query_pipeline = transformers.pipeline(
+        "text-generation",
+        model=model,
+        tokenizer=tokenizer,
+        torch_dtype=torch.float16,
+        max_length=6000,  # Increase max_length
+        max_new_tokens=500,  # Control the number of new tokens generated
+        device_map="auto",
+    )
+   
+    llm = HuggingFacePipeline(pipeline=query_pipeline)
+   
+
+
 
     return llm
 # --- 5. App Logic ---
