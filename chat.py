@@ -1,14 +1,16 @@
 import streamlit as st
 from streamlit_chat import message
 
-from langchain.embeddings import HuggingFaceEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
+
 from langchain_community.llms import LlamaCpp
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.vectorstores import FAISS
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.vectorstores import FAISS
 from langchain_classic.chains import ConversationalRetrievalChain
 from langchain_classic.memory import ConversationBufferMemory
 # CHANGED: Import CSVLoader instead of PyPDFLoader
-from langchain.document_loaders.csv_loader import CSVLoader
+
+from langchain_classic.document_loaders.csv_loader import CSVLoader
 import os
 # REMOVED: Removed the need for tempfile
 # import tempfile
@@ -37,8 +39,16 @@ def display_chat_history(chain):
     with container:
         with st.form(key='my_form', clear_on_submit=True):
             # UPDATED: Placeholder for bank context
-            user_input = st.text_input("Question:", placeholder="Ask about bank FAQs (e.g., 'What should I do if my card is lost?'), key='input')
-            submit_button = st.form_submit_button(label='Send')
+                    with st.form(key="form"):
+                        user_input = st.text_input(
+                            "Question:",
+                            placeholder="Ask about bank FAQs (e.g., 'What should I do if my card is lost?')",
+                            key='input'
+                        )
+
+                        submit_button = st.form_submit_button(label='Send')
+
+
 
         if submit_button and user_input:
             with st.spinner('Generating response...'):
@@ -84,7 +94,7 @@ def main():
     st.sidebar.markdown("Data loaded from **BankFAQs.csv**.") # Information for the user
 
     # Define the path to your CSV file
-    csv_file_path = "data/BankFAQs.csv"
+    csv_file_path =  "data/BankFAQs.csv" 
 
     # Use LangChain's CSVLoader to load the data
     # NOTE: The default setting will create document content from the entire row.
